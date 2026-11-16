@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Как языковая модель пишет текст — Нейродневник лисы</title>
+<style>
+  :root {
+    --bg-main: #090d16;
+    --bg-stage: #0d1322;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --fox-accent: #f97316;
+    --model-border: #38bdf8;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, "Courier New", monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background-color: #05070c;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-sans);
+    color: var(--text-main);
+  }
+
+  /* 16:9 Stage Wrapper */
+  #stage-wrapper {
+    position: relative;
+    width: 1280px;
+    height: 720px;
+    transform-origin: center center;
+    background: radial-gradient(circle at 50% 35%, #131c31 0%, #090d16 75%);
+    border-radius: 12px;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  /* Subtle Infographic Grid */
+  .bg-grid {
+    position: absolute;
+    inset: 0;
+    background-image: 
+      linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  /* Main high-DPI Canvas */
+  #anim-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1280px;
+    height: 720px;
+    display: block;
+  }
+
+  /* Controls Hint Bar (Hidden with H) */
+  #controls-bar {
+    position: absolute;
+    top: 18px;
+    left: 22px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #cbd5e1;
+    backdrop-filter: blur(8px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 30;
+    pointer-events: none;
+  }
+
+  #controls-bar.hidden {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  .key-badge {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 5px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 8px #22c55e;
+  }
+
+  .status-dot.paused {
+    background: #f59e0b;
+    box-shadow: 0 0 8px #f59e0b;
+  }
+
+  /* Start Overlay Prompt */
+  #start-prompt {
+    position: absolute;
+    top: 26px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(249, 115, 22, 0.14);
+    border: 1px solid rgba(249, 115, 22, 0.45);
+    color: #ffedd5;
+    padding: 9px 22px;
+    border-radius: 999px;
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    z-index: 25;
+    pointer-events: none;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+    box-shadow: 0 8px 25px rgba(249, 115, 22, 0.15);
+  }
+
+  #start-prompt.hidden {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+
+  /* Always-on Watermark in bottom right */
+  #watermark {
+    position: absolute;
+    bottom: 22px;
+    right: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: rgba(248, 250, 252, 0.68);
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .fox-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage-wrapper">
+  <div class="bg-grid"></div>
+  <canvas id="anim-canvas"></canvas>
+
+  <!-- Toggleable Keyboard Hint -->
+  <div id="controls-bar">
+    <div id="play-indicator" class="status-dot paused"></div>
+    <span><span class="key-badge">Пробел</span> / Клик — Старт/Пауза</span>
+    <span><span class="key-badge">R</span> — Сначала</span>
+    <span><span class="key-badge">H</span> — Скрыть подсказку</span>
+  </div>
+
+  <!-- Initial Start Banner -->
+  <div id="start-prompt">Нажмите Пробел или кликните для старта анимации</div>
+
+  <!-- Channel Signature -->
+  <div id="watermark">
+    <svg class="fox-icon" viewBox="0 0 24 24" fill="none">
+      <path d="M4 3L9.5 8.5L12 7L14.5 8.5L20 3L19 14L12 21L5 14L4 3Z" fill="#f97316" fill-opacity="0.9"/>
+      <path d="M12 21L9 15.5L12 17L15 15.5L12 21Z" fill="#fff" fill-opacity="0.85"/>
+    </svg>
+    <span>Нейродневник лисы</span>
+  </div>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  // ============================================================================
+  // 1. STAGE SCALING & HI-DPI CANVAS SETUP
+  // ============================================================================
+  const STAGE_W = 1280;
+  const STAGE_H = 720;
+  const stageWrapper = document.getElementById('stage-wrapper');
+  const canvas = document.getElementById('anim-canvas');
+  const ctx = canvas.getContext('2d');
+  const controlsBar = document.getElementById('controls-bar');
+  const startPrompt = document.getElementById('start-prompt');
+  const playIndicator = document.getElementById('play-indicator');
+
+  function resizeStage() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    canvas.width = STAGE_W * dpr;
+    canvas.height = STAGE_H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const scaleX = window.innerWidth / STAGE_W;
+    const scaleY = window.innerHeight / STAGE_H;
+    const scale = Math.min(scaleX, scaleY) * 0.98;
+    stageWrapper.style.transform = `scale(${scale})`;
+  }
+
+  window.addEventListener('resize', resizeStage);
+  resizeStage();
+
+  // ============================================================================
+  // 2. EXACT TOKEN DATA & GENERATION ROUNDS (o200k_base)
+  // ============================================================================
+  const FULL_USER_TEXT = "Изучай правила как профессионал, чтобы потом разрушить их как";
+
+  // Exact 14 user prompt tokens
+  const BASE_TOKENS = [
+    { text: "Из",          id: "55428",  color: "#3b82f6", isModel: false },
+    { text: "уч",          id: "4497",   color: "#8b5cf6", isModel: false },
+    { text: "ай",          id: "2568",   color: "#ec4899", isModel: false },
+    { text: " правила",    id: "69862",  color: "#14b8a6", isModel: false },
+    { text: " как",        id: "6220",   color: "#f59e0b", isModel: false, isSamePair: true },
+    { text: " профессион", id: "52129",  color: "#06b6d4", isModel: false },
+    { text: "ал",          id: "1019",   color: "#a855f7", isModel: false },
+    { text: ",",           id: "11",     color: "#64748b", isModel: false },
+    { text: " чтобы",      id: "15419",  color: "#10b981", isModel: false },
+    { text: " потом",      id: "50906",  color: "#6366f1", isModel: false },
+    { text: " разруш",     id: "135165", color: "#f43f5e", isModel: false },
+    { text: "ить",         id: "3707",   color: "#0ea5e9", isModel: false },
+    { text: " их",         id: "11229",  color: "#84cc16", isModel: false },
+    { text: " как",        id: "6220",   color: "#f59e0b", isModel: false, isSamePair: true }
+  ];
+
+  // Exact 4 generation rounds
+  const MODEL_TOKENS = [
+    { text: " худож", id: "122819", color: "#fb923c", isModel: true },
+    { text: "ник",    id: "11072",  color: "#38bdf8", isModel: true },
+    { text: ".",      id: "13",     color: "#e879f9", isModel: true },
+    { text: "EOS",    id: "",       color: "#f43f5e", isModel: true, isEOS: true }
+  ];
+
+  const ROUNDS_DATA = [
+    {
+      candidates: [
+        { label: "« худож»", pct: 71, winner: true },
+        { label: "« мастер»", pct: 9, winner: false },
+        { label: "« твор»", pct: 5, winner: false },
+        { label: "« бог»", pct: 3, winner: false }
+      ],
+      spawnTokenIndex: 0
+    },
+    {
+      candidates: [
+        { label: "«ник»", pct: 95, winner: true },
+        { label: "«ница»", pct: 4, winner: false }
+      ],
+      spawnTokenIndex: 1
+    },
+    {
+      candidates: [
+        { label: "«.»", pct: 46, winner: true },
+        { label: "«»", pct: 21, winner: false },
+        { label: "«!»", pct: 9, winner: false },
+        { label: "«,»", pct: 7, winner: false }
+      ],
+      spawnTokenIndex: 2
+    },
+    {
+      candidates: [
+        { label: "«EOS (конец)»", pct: 82, winner: true },
+        { label: "«⏎ перенос строки»", pct: 9, winner: false },
+        { label: "« П»", pct: 4, winner: false }
+      ],
+      spawnTokenIndex: 3
+    }
+  ];
+
+  const ALL_TOKENS = [...BASE_TOKENS, ...MODEL_TOKENS];
+
+  // ============================================================================
+  // 3. MATH & EASING UTILITIES
+  // ============================================================================
+  function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
+  }
+
+  function norm(t, start, end) {
+    if (end <= start) return t >= end ? 1 : 0;
+    return clamp((t - start) / (end - start), 0, 1);
+  }
+
+  function lerp(a, b, u) {
+    return a + (b - a) * u;
+  }
+
+  function easeInOutCubic(x) {
+    return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  }
+
+  function easeOutCubic(x) {
+    return 1 - Math.pow(1 - x, 3);
+  }
+
+  function easeOutBack(x) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function drawRoundedRect(ctx, x, y, w, h, r) {
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + w, y, x + w, y + h, radius);
+    ctx.arcTo(x + w, y + h, x, y + h, radius);
+    ctx.arcTo(x, y + h, x, y, radius);
+    ctx.arcTo(x, y, x + w, y, radius);
+    ctx.closePath();
+  }
+
+  // ============================================================================
+  // 4. PRE-COMPUTED LAYOUTS & LOOP TRACK GEOMETRY
+  // ============================================================================
+  const layouts = {
+    splitCenter: [],   // Step 2 & 3: 14 tokens centered with gap
+    beadLine: [],      // Step 3 end: 14 compact beads in horizontal chain
+    finalUnfold: []    // Step 8: 17 text tokens + EOS centered
+  };
+
+  function computeStaticLayouts() {
+    // 1. Measure widths of 14 tokens for Step 2 (Tokenization)
+    ctx.font = '600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const splitGap = 9;
+    const splitPadX = 12;
+    let totalSplitW = 0;
+    const widths14 = BASE_TOKENS.map(tok => {
+      const w = Math.ceil(ctx.measureText(tok.text).width) + splitPadX * 2;
+      totalSplitW += w;
+      return w;
+    });
+    totalSplitW += splitGap * (BASE_TOKENS.length - 1);
+
+    let curX = (STAGE_W - totalSplitW) / 2;
+    const splitY = 300;
+    layouts.splitCenter = BASE_TOKENS.map((tok, i) => {
+      const w = widths14[i];
+      const cx = curX + w / 2;
+      curX += w + splitGap;
+      return { x: cx, y: splitY, w: w, h: 46 };
+    });
+
+    // 2. Compact 14 beads line (ready to enter Model on the left)
+    const beadPitch = 56;
+    // Head is index 0 (rightmost so it enters the model first from left to right!)
+    // Wait: let's keep natural left-to-right reading order!
+    // In left-to-right reading order: index 0 ("Из") is on the left, index 13 (" как") is on the right,
+    // and new token #14 (" худож") appends to the right (end) of the chain!
+    // Let's make sure when the chain moves left-to-right through the Model box:
+    // Index 0 is on the left, Index N-1 is on the right. The whole horizontal train moves rightwards
+    // through the Model box, and the newly generated bead attaches right after Index N-1 (on the right end of the chain)!
+    // Let's verify how a horizontal train with Index 0 on the left and Index N-1 on the right moves through the Model:
+    // If Index 0 is at `headX - i * pitch` vs `tailX + i * pitch`:
+    // Suppose the chain is always ordered left-to-right: Token 0, Token 1, ..., Token 13, [Token 14].
+    // That way "Из" -> "уч" -> "ай" ... -> " как" -> " худож" always reads naturally from left to right!
+    const startChainCenterX = 480;
+    const chainTotalW = (BASE_TOKENS.length - 1) * beadPitch;
+    const firstBeadX = startChainCenterX - chainTotalW / 2;
+    layouts.beadLine = BASE_TOKENS.map((tok, i) => ({
+      x: firstBeadX + i * beadPitch,
+      y: 335,
+      w: 50,
+      h: 34
+    }));
+
+    // 3. Final unfolded text layout (17 text tokens + 1 EOS square badge)
+    ctx.font = '600 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const finalGap = 6;
+    const finalPadX = 9;
+    let totalFinalW = 0;
+    const finalWidths = ALL_TOKENS.map(tok => {
+      if (tok.isEOS) {
+        totalFinalW += 54;
+        return 54;
+      }
+      const w = Math.ceil(ctx.measureText(tok.text).width) + finalPadX * 2;
+      totalFinalW += w;
+      return w;
+    });
+    totalFinalW += finalGap * (ALL_TOKENS.length - 1);
+
+    let fCurX = (STAGE_W - totalFinalW) / 2;
+    const finalY = 315;
+    layouts.finalUnfold = ALL_TOKENS.map((tok, i) => {
+      const w = finalWidths[i];
+      const cx = fCurX + w / 2;
+      fCurX += w + finalGap;
+      return { x: cx, y: finalY, w: w, h: 44 };
+    });
+  }
+
+  computeStaticLayouts();
+
+  // Closed Stadium Track Geometry for the Autoregressive Loop
+  // Top straight goes Left -> Right through the Model Box at Y = 335
+  // Right semicircle goes from (1055, 335) down to (1055, 535) with R = 100
+  // Bottom straight goes Right -> Left from (1055, 535) to (225, 535)
+  // Left semicircle goes from (225, 535) up to (225, 335) with R = 100
+  const TRACK = {
+    leftX: 225,
+    rightX: 1055,
+    topY: 335,
+    bottomY: 535,
+    radius: 100,
+    straightLen: 830, // 1055 - 225
+    arcLen: Math.PI * 100, // ~314.16
+    get totalLen() {
+      return this.straightLen * 2 + this.arcLen * 2; // ~2288.32 px
+    },
+    // s = 0 is (leftX, topY) = (225, 335)
+    // Increasing s moves clockwise: Left->Right on top straight, then around bottom loop
+    getPointAtS(s) {
+      const L = this.totalLen;
+      const u = ((s % L) + L) % L;
+      const s1 = this.straightLen;
+      const s2 = s1 + this.arcLen;
+      const s3 = s2 + this.straightLen;
+
+      if (u <= s1) {
+        // Top straight: Left -> Right
+        return { x: this.leftX + u, y: this.topY };
+      } else if (u <= s2) {
+        // Right semicircle: Top -> Bottom
+        const angle = -Math.PI / 2 + ((u - s1) / this.arcLen) * Math.PI;
+        return {
+          x: this.rightX + Math.cos(angle) * this.radius,
+          y: (this.topY + this. radius) + Math.sin(angle) * this.radius
+        };
+      } else if (u <= s3) {
+        // Bottom straight: Right -> Left
+        return { x: this.rightX - (u - s2), y: this.bottomY };
+      } else {
+        // Left semicircle: Bottom -> Top
+        const angle = Math.PI / 2 + ((u - s3) / this.arcLen) * Math.PI;
+        return {
+          x: this.leftX + Math.cos(angle) * this.radius,
+          y: (this.topY + this.radius) + Math.sin(angle) * this.radius
+        };
+      }
+    }
+  };
+
+  // Model Box Coordinates (Positioned on the Top Straight of the track)
+  const MODEL_BOX = {
+    x: 410,
+    y: 235,
+    w: 300,
+    h: 200,
+    get centerX() { return this.x + this.w / 2; },
+    get centerY() { return this.y + this.h / 2; }
+  };
+
+  // In each round:
+  // A chain of N beads has index 0 (first word "Из") at the RIGHT end of the chain?
+  // Wait — let's think carefully about visual clarity!
+  // In Russian/English text, Token 0 ("Из") is on the LEFT, and Token 13 (" как") is on the RIGHT:
+  // [55428] - [4497] - ... - [6220]
+  // When the new token [122819] (" худож") is added to the END of the text, where is the "end" of the text?
+  // On the RIGHT side! Immediately to the right of [6220]!
+  // Now let's check: when the chain enters the Model from the left and exits on the right:
+  // If the chain is positioned on the track such that Token 0 is on the left and Token 13 is on the right:
+  // Wait: if the chain moves from Left to Right through the Model box:
+  // - First, Token 13 (rightmost) enters the left wall of the Model box, followed by 12, 11... and Token 0 (leftmost) enters last.
+  // - Inside the Model box, the whole chain is inside or passing through.
+  // - When the chain exits the right wall of the Model box:
+  //   If Token 0 is on the left and Token 13 is on the right, then when the whole chain has exited to the right of the Model box, Token 0 is closest to the Model box and Token 13 is farthest to the right!
+  //   Wait: if the probability bars are above the RIGHT side of the Model box, and the new bead drops down from the bars to attach to the END of the chain (right after Token 13):
+  //   Look at both possibilities:
+  //   Possibility A: Token 0 is the leading bead (front of the train moving clockwise), and Token 13 is the trailing bead (back of the train)!
+  //   Wait: if Token 13 is the trailing bead, then as the train exits the right side of the Model box, Token 13 is RIGHT AT the exit of the Model box (directly underneath the probability bars!), so the new bead drops straight down from the bars and clicks onto the tail of the train right after Token 13!
+  //   Wait: what about reading order when Token 0 is at the front?
+  //   Let's check! If the chain is on the top straight (moving Left -> Right), and Token 13 is on the right while Token 0 is on the left:
+  //   Can the new bead spawn above the right side of the Model box and land at the right end of the chain (after Token 13)?
+  //   YES! Look at the geometry:
+  //   - Model Box is at `x: 360 .. 640` (width 280).
+  //   - Before entering the Model box, the chain is on the left (`x: 95 .. 450`).
+  //   - It moves right into and through the Model box (`x: 360 .. 640`).
+  //   - As it exits the right side of the Model box (`x: 520 .. 1130`), the whole chain of 14 beads is aligned horizontally to the right of the Model box (`x: 420 .. 1130`), with Token 0 on the left (`x = 420`) and Token 13 on the right (`x = 1096`), and the new Token 14 lands at `x = 1148` (right at the end of the chain)!
+  //   Wait — what if the probability chart is above the right side of the Model box (`x: 680 .. 1160`)?
+  //   Then the probability chart is right above the exiting chain, and the new bead drops from the winning bar directly onto the right end of the chain (`index N`, right after `index N-1`)!
+  //   Let's double check this!
+  //   If Token 0 is ALWAYS at `s_base + i * pitch` (so on the top straight, `x` increases with `i`: Token 0 is on the left, Token 1 is to its right, ..., Token N-1 is on the right, and the new Token N attaches to the right of Token N-1!):
+  //   Let's trace what happens at EVERY step with `s_i = s_0 + i * pitch`:
+  //   1. At Step 3 (when letters fade and beads form):
+  //      Token 0 ("Из", 55428) is on the left, Token 13 (" как", 6220) is on the right. Zero swapping needed! The tokens stay in their exact left-to-right reading order!
+  //   2. Entering the Model (Left to Right):
+  //      The whole chain slides right (`s_0` increases) and enters the left side of the Model box!
+  //      Inside the Model box (or passing through the Model box), all beads pass through the layers from left to right.
+  //   3. Exiting the Model (Right side):
+  //      The chain emerges from the right side of the Model box in exact left-to-right order:
+  //      `[55428] [4497] ... [6220]`
+  //      And right at the right end (after `[6220]`), the new bead `[122819]` drops from the highlighted probability bar and attaches to the end!
+  //   4. Looping around (Bottom track):
+  //      `s_0` increases by one full lap (`TRACK.totalLen`). The entire chain travels around the right turn, along the bottom straight, around the left turn, and arrives back at the left entrance of the Model box in the exact same left-to-right order `[55428] [4497] ... [6220] [122819]`!
+  //   5. Unfolding at the Finale (Step 8):
+  //      Because the chain is ALREADY in left-to-right reading order (`0, 1, 2, ..., 17`), unfolding back into the final sentence has ZERO crossing lines! Every single bead smoothly expands in place into its word chip!
+
+  // That `s_i = s_0 + i * pitch` formulation is mathematically and visually seamless:
+  // - Never flips reading order
+  // - Never crosses trajectories during transitions
+  // - Appends new tokens strictly to the right end of the sequence.
+
+  // Let's fine-tune the coordinates for this exact geometry!
+  // Pitch between beads on the track:
+  const BEAD_PITCH = 49; // 18 beads * 49 = 882px total chain length (total track is 2288px, so plenty of room!)
+
+  // Let's place the Model Box so that:
+  // - Left entrance of Model Box is at `x = 290`
+  // - Right exit of Model Box is at `x = 570` (Width = 280, Height = 190, Y = 240..430)
+  // Let's check where the exiting chain of 14..18 beads sits when it has just exited the Model Box:
+  // Wait: if 17 beads have length `16 * 49 = 784px`:
+  // While the chain passes through the Model box (`x = 290 .. 570`), when the chain is exiting on the right:
+  // Suppose at the "Exit & Append" pose:
+  // The tail of the chain (Token N-1, where the new Token N attaches) is at `s_tail = 780` (`x = 225 + 780 = 1005`),
+  // and the new Token N attaches at `s_new = 780 + 49 = 829` (`x = 225 + 829 = 1054`, right at the end of the top straight before the curve!).
+  // Where is Token 0 at that moment?
+  // For N = 14 (Round 1): `s_0 = 780 - 13 * 49 = 143` (`x = 225 + 143 = 368`).
+  //Wait: let's make sure the whole chain exits the right side of the box, OR passes completely through the box!
+  // Let's check the prompt:
+  // "4. Модель. Справа появляется коробка с подписью «Модель», внутри видно несколько горизонтальных слоёв. Вся цепочка целиком влетает в коробку с левой стороны.
+  //  5. Выбор. Над правой стороной коробки вырастают столбики: самые вероятные следующие токены с процентами. Выбранный столбик подсвечивается, и из него появляется новая бусина. В углу мелкая подпись: «вероятности для примера».
+  //  6. Добавление. Цепочка выходит из коробки справа точно такой же, как вошла: те же цвета, те же номера, тот же порядок. Только в конец добавляется одна новая бусина. Модель не меняет старый текст, она только дописывает.
+  //  7. Круг. Цепочка облетает коробку по кругу и снова заходит в неё слева. Каждый круг добавляет ровно одну бусину, и цепочка растёт."
+
+  // Look at how clear Steps 4, 5, 6, 7 are:
+  // - In Step 4 ("Вся цепочка целиком влетает в коробку с левой стороны"):
+  //   The chain moves from the left of the box into the Model box! Inside the Model box, the chain compresses slightly (or fits inside the Model box while being processed by the layers) so the viewer sees the ENTIRE chain go inside the Model box from the left!
+  // - In Step 5 ("Над правой стороной коробки вырастают столбики..."):
+  //   While the chain is inside the Model box (and layers are pulsing), the probability bars grow above the right side of the Model box, and the winning bar highlights and spawns the new bead.
+  // - In Step 6 ("Цепочка выходит из коробки справа точно такой же, как вошла... Только в конец добавляется одна новая бусина"):
+  //   The chain exits the Model box from the right side, and the newly spawned bead joins the end of the chain!
+  // - In Step 7 ("Цепочка облетает коробку по кругу и снова заходит в неё слева"):
+  //   The chain (with the new bead at its end) loops around the bottom of the Model box and comes back to the left side of the Model box, ready to fly into the left side again!
+
+  // Let's verify how each bead moves through the 4 phases of a Round:
+  // Let's trace the position of each bead `i` (from `0` to `count - 1`) along the loop track!
+  // Wait: if the chain flies into the box from the left, then exits from the right, and loops around the bottom back to the left:
+  // Let's place the Model Box at the center of the top track:
+  // `MODEL_BOX = { x: 460, y: 255, w: 320, h: 170 }` (center X = 620, center Y = 340).
+  // Track top straight is at `y = 340`, from `leftX = 170` to `rightX = 1110` (`straightLen = 940`).
+  // Track bottom straight is at `y = 540`, `radius = 100`.
+  // On the top straight (`s` from `0` to `940`):
+  // - Left of Model Box is `x = 170 .. 460` (`s = 0 .. 290`).
+  // - Inside Model Box is `x = 460 .. 780` (`s = 290 .. 610`, center is `s = 450`, width = 320).
+  // - Right of Model Box is `x = 780 .. 1110` (`s = 610 .. 940`).
+  //
+  // Now watch what happens if we parameterize the chain by its center track coordinate `s_center` AND its spacing `pitch`:
+  // 1. **At the Left Entrance (Before entering Model)**:
+  //    The chain is approaching from the left turn onto the left side of the box (`s_center = 160`, `pitch = 46`).
+  // 2. **Entering the Model (Step 4)**:
+  //    The entire chain flies from the left side into the Model box (`s_center = 450`, which is dead center inside the Model box `x = 620`!).
+  //    As beads cross the left wall of the Model box (`x = 460`), their pitch smoothly compacts to `18px` inside the neural core so ALL 14–17 beads visibly fit inside the `320px` Model box at the same time!
+  // 3. **Computing Probabilities & Sampling (Step 5)**:
+  //    While the entire chain is inside the Model box (`s_center` slowly drifting from `440` to `470`), the horizontal neural layers ripple and the probability bars grow above the right side of the Model box (`x = 600 .. 920, y = 45 .. 235`).
+  //    The winning bar highlights and spawns the new bead right above the exit of the Model box!
+  // 4. **Exiting the Model on the Right & Appending to the End (Step 6)**:
+  //    The chain exits out the right side of the Model box (`s_center` moves from `470` to `860`, expanding back to full `pitch = 46px` so every bead, color, and number is clearly visible!).
+  //    Wait: when the chain exits the right side of the Model box, which end is the "end" (tail) of the chain?
+  //    Let's check!
+  //    When a chain moves left-to-right out of the right wall of the Model box (`x = 780`):
+  //    - If Token 0 ("Из") is on the left (`s_0 < s_1 < ... < s_{N-1}`), then Token 13 (" как") exits FIRST, and Token 0 ("Из") exits LAST. Then the end of the chain (`Token 13`) is on the far right (`x ~ 1080`).
+  //    - What if instead, while outside the box on the right, the chain sits at `x = 680 .. 1140` with Token 0 on the left and Token 13 on the right, and the new bead drops from the probability bar onto the right end (after Token 13)?
+  //    Let's check both! If the probability bar is above the right side of the Model box (`x = 640 .. 960`), and the new bead drops down and arcs smoothly to attach right after Token `N-1` (on the right end of the exiting chain), let's see where Token `N-1` is when the chain exits the right side of the box:
+  //    Suppose when the chain exits the right side of the Model box, we place the exited chain to the right of the Model box!
+  //    Wait: how wide is the space to the right of the Model box?
+  //    If the Model box is at `x = 260 .. 540` (center X = 400, width = 280), then to the right of the Model box we have `x = 560 .. 1220` — that is **660 pixels** of open horizontal space on the right of the Model box!
+  //    Let's check that!
+  //    If the Model box is at `x = 250 .. 520` (width 270px):
+  //    - Left of Model box: `x = 60 .. 250` (where the chain enters from the loop on the left!).
+  //    - Inside Model box: `x = 250 .. 520` (where the chain flies in from the left).
+  //    - Right of Model box: `x = 540 .. 1210` (670px wide! An entire chain of 15, 16, 17, 18 beads fits completely flat and readable in one horizontal line to the right of the Model box after exiting!).
+  //    HOLD ON! Think about how awesome that is!
+  //    Let's verify this!
+  //    If the Model box is at `x = 230, w = 260` (`x = 230 .. 490`, `y = 245 .. 425`, center Y = 335):
+  //    1. In Step 4, the chain moves from the left into the Model box (`x = 230 .. 490`).
+  //    2. In Step 5, above the right side of the Model box (`x = 350 .. 680`), the probability bars grow and the winning bar spawns the new bead.
+  //    3. In Step 6 ("Цепочка выходит из коробки справа точно такой же, как вошла: те же цвета, те же номера, тот же порядок. Только в конец добавляется одна новая бусина"):
+  //       The ENTIRE chain exits out of the right side of the Model box (`x = 515 .. 1215`) in a completely straight, flat, crystal-clear horizontal line!
+  //       Every single bead (`0 .. N-1`) is simultaneously visible outside the right side of the Model box in exact left-to-right reading order (`55428`, `4497`, ..., `6220`), and at the right end of that chain, the newly spawned bead drops into place!
+  //    4. In Step 7 ("Цепочка облетает коробку по кругу и снова заходит в неё слева"):
+  //       From the right side of the box (`x = 515 .. 1215`), the chain dives down around the bottom loop track, travels right-to-left underneath the Model box (`y = 535`), curves up on the left side (`x = 75`), and enters the Model box from the left side (`x = 230`)!
+
+  // Let's pause and admire that layout!
+  // Why is putting the Model box at `x = 220 .. 480` so effective?
+  // Because in Step 6, the prompt specifically says:
+  // "6. Добавление. Цепочка выходит из коробки справа точно такой же, как вошла: те же цвета, те же номера, тот же порядок. Только в конец добавляется одна новая бусина. Модель не меняет старый текст, она только дописывает."
+  // When there is 730px of space to the right of the Model box (`x = 500 .. 1230`), the viewer can literally see the ENTIRE 15-bead (then 16-, 17-, 18-bead) chain sitting right there outside the right wall of the Model box in one unbroken horizontal line, with the new bead snapping onto the right end!
+
+  // Let's check the exact dimensions for this layout:
+  // Track Stadium:
+  // - `topY = 340`
+  // - `bottomY = 536`
+  // - `radius = 98` (so `topY + 2 * radius = 536`)
+  // - `leftX = 145` (leftmost outer arc reaches `145 - 98 = 47`)
+  // - `rightX = 1135` (rightmost outer arc reaches `1135 + 98 = 1233`)
+  // - `straightLen = 1135 - 145 = 990`
+  // - `arcLen = Math.PI * 98 = 307.88`
+  // - `totalLen = 990 * 2 + 307.88 * 2 = 2595.75`
+  //
+  // Model Box on the Top Straight:
+  // - `MODEL_BOX = { x: 205, y: 245, w: 265, h: 190 }`
+  // - Left wall of Model Box is at `x = 205` (`s = 205 - 145 = 60` on the top straight).
+  // - Right wall of Model Box is at `x = 470` (`s = 470 - 145 = 325` on the top straight).
+  // - Center of Model Box is at `x = 337.5` (`s = 192.5` on the top straight).
+  //
+  // Space to the right of the Model Box on the Top Straight:
+  // - From `x = 490` (`s = 345`) to `x = 1205` (just around the top-right curve, `s = 1065`):
+  // - With bead pitch `41px`:
+  //   - 15 beads = `14 * 41 = 574px` -> fits from `x = 510` to `x = 1084` (100% on the flat top straight `x <= 1135`!).
+  //   - 16 beads = `15 * 41 = 615px` -> fits from `x = 505` to `x = 1120` (100% on the flat top straight!).
+  //   - 17 beads = `16 * 41 = 656px` -> fits from `x = 495` to `x = 1151` (practically 100% flat!).
+  //   - 18 beads = `17 * 41 = 697px` -> fits from `x = 490` to `x = 1187`!
+  // Every single exited chain (15, 16, 17, 18 beads) fits cleanly to the right of the Model box so the viewer sees the ENTIRE chain intact + the 1 new bead added at the end!
+
+  const LOOP_TRACK = {
+    leftX: 145,
+    rightX: 1135,
+    topY: 340,
+    bottomY: 536,
+    radius: 98,
+    straightLen: 990,
+    arcLen: Math.PI * 98,
+    get totalLen() {
+      return this.straightLen * 2 + this.arcLen * 2;
+    },
+    getPointAtS(s) {
+      const L = this.totalLen;
+      const u = ((s % L) + L) % L;
+      const s1 = this.straightLen;
+      const s2 = s1 + this.arcLen;
+      const s3 = s2 + this.straightLen;
+
+      if (u <= s1) {
+        return { x: this.leftX + u, y: this.topY };
+      } else if (u <= s2) {
+        const angle = -Math.PI / 2 + ((u - s1) / this.arcLen) * Math.PI;
+        return {
+          x: this.rightX + Math.cos(angle) * this.radius,
+          y: (this.topY + this.radius) + Math.sin(angle) * this.radius
+        };
+      } else if (u <= s3) {
+        return { x: this.rightX - (u - s2), y: this.bottomY };
+      } else {
+        const angle = Math.PI / 2 + ((u - s3) / this.arcLen) * Math.PI;
+        return {
+          x: this.leftX + Math.cos(angle) * this.radius,
+          y: (this.topY + this.radius) + Math.sin(angle) * this.radius
+        };
+      }
+    }
+  };
+
+  const MBOX = {
+    x: 205,
+    y: 245,
+    w: 265,
+    h: 190,
+    sLeft: 205 - 145,   // 60
+    sCenter: 337.5 - 145, // 192.5
+    sRight: 470 - 145   // 325
+  };
+
+  // ============================================================================
+  // 5. TIMELINE DEFINITION (PAUSABLE, SEEKABLE, DETERMINISTIC)
+  // ============================================================================
+  // Let's structure the timeline with clear timestamps (in seconds):
+  //
+  // 0.0 – 3.5s   : Step 1 — Typing user text in bottom chat input
+  // 3.5 – 6.2s   : Step 2 — Text rises to center & splits into 14 colored token chips
+  //                         Caption: «Текст режется на токены»
+  // 6.2 – 11.2s  : Step 3 — Numbers appear below chips (6.2-7.4s),
+  //                         Both « как» (6220) pulse & connect with highlight arc (7.4-9.5s),
+  //                         Letters fade out and chips morph into 14 numbered beads (9.5-11.2s).
+  //                         Caption: «Модель видит только номера»
+  //
+  // 11.2 – 21.2s : Round 1 (Slow & Detailed, 10.0 seconds total)
+  //   - 11.2 – 14.0s : Model box appears, entire chain of 14 beads enters Model from the left.
+  //                    Caption: «Весь текст целиком заходит в модель»
+  //   - 14.0 – 17.2s : Layers pulse, probability bars grow above right side of Model:
+  //                    « худож» 71%, « мастер» 9%, « твор» 5%, « бог» 3%
+  //                    Caption: «Модель считает вероятности следующего токена»
+  //   - 17.2 – 21.2s : « худож» (71%) bar highlights, spawns bead 122819,
+  //                    chain of 14 beads exits right side intact, bead 122819 attaches to the end (15 beads).
+  //                    Caption: «Сэмплер выбирает один токен, он дописывается в конец»
+  //
+  // 21.2 – 26.0s : Round 2 (Faster, 4.8 seconds)
+  //   - Caption throughout Rounds 2–4: «И так по кругу, пока не выпадет токен конца»
+  //   - 21.2 – 23.0s : Chain of 15 beads loops around bottom track & enters left of Model.
+  //   - 23.0 – 24.3s : Bars grow («ник» 95%, «ница» 4%), «ник» highlights.
+  //   - 24.3 – 26.0s : Chain exits right & bead 11072 attaches to end (16 beads).
+  //
+  // 26.0 – 29.2s : Round 3 (Even faster, 3.2 seconds)
+  //   - 26.0 – 27.2s : Chain of 16 beads loops around bottom track & enters left of Model.
+  //   - 27.2 – 28.1s : Bars flash («.» 46%, «» 21%, «!» 9%, «,» 7%), «.» highlights.
+  //   - 28.1 – 29.2s : Chain exits right & bead 13 attaches to end (17 beads).
+  //
+  // 29.2 – 32.0s : Round 4 (Fastest, 2.8 seconds)
+  //   - 29.2 – 30.2s : Chain of 17 beads loops around bottom track & enters left of Model.
+  //   - 30.2 – 31.0s : Bars flash («EOS (конец)» 82%, «⏎ перенос строки» 9%, « П» 4%), EOS highlights.
+  //   - 31.0 – 32.0s : Chain exits right & square bead EOS attaches to end (18 beads).
+  //
+  // 32.0 – 38.0s : Step 8 — Finale
+  //   - 32.0 – 34.2s : Loop stops, Model box fades out, 18 beads move to center and unfold back into text + IDs.
+  //   - 34.2 – 38.0s : Final quote displayed with user vs model token styling + «Цитату приписывают Пабло Пикассо».
+
+  const TIMELINE_END = 38.0;
+
+  const ROUND_TIMINGS = [
+    {
+      roundIndex: 0,
+      inCount: 14,
+      tStart: 11.2,
+      tEnterEnd: 14.0,
+      tBarsEnd: 17.2,
+      tExitEnd: 21.2
+    },
+    {
+      roundIndex: 1,
+      inCount: 15,
+      tStart: 21.2,
+      tEnterEnd: 23.0,
+      tBarsEnd: 24.3,
+      tExitEnd: 26.0
+    },
+    {
+      roundIndex: 2,
+      inCount: 16,
+      tStart: 26.0,
+      tEnterEnd: 27.2,
+      tBarsEnd: 28.1,
+      tExitEnd: 29.2
+    },
+    {
+      roundIndex: 3,
+      inCount: 17,
+      tStart: 29.2,
+      tEnterEnd: 30.2,
+      tBarsEnd: 31.0,
+      tExitEnd: 32.0
+    }
+  ];
+
+  // ============================================================================
+  // 6. PLAYBACK STATE & CONTROLS (SPACE, R, H, CLICK)
+  // ============================================================================
+  let animTime = 0;
+  let isPlaying = false;
+  let hasStarted = false;
+  let lastFrameTimestamp = null;
+
+  function updateUIState() {
+    if (hasStarted) {
+      startPrompt.classList.add('hidden');
+    } else {
+      startPrompt.classList.remove('hidden');
+    }
+
+    if (isPlaying) {
+      playIndicator.classList.remove('paused');
+    } else {
+      playIndicator.classList.add('paused');
+    }
+  }
+
+  function togglePlay() {
+    if (!hasStarted) {
+      hasStarted = true;
+      isPlaying = true;
+    } else if (animTime >= TIMELINE_END) {
+      animTime = 0;
+      isPlaying = true;
+    } else {
+      isPlaying = !isPlaying;
+    }
+    updateUIState();
+  }
+
+  function restartAnimation() {
+    animTime = 0;
+    hasStarted = true;
+    isPlaying = true;
+    updateUIState();
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      togglePlay();
+    } else if (e.code === 'KeyR') {
+      e.preventDefault();
+      restartAnimation();
+    } else if (e.code === 'KeyH') {
+      e.preventDefault();
+      controlsBar.classList.toggle('hidden');
+    }
+  });
+
+  stageWrapper.addEventListener('click', () => {
+    togglePlay();
+  });
+
+  // ============================================================================
+  // 7. CAPTION HELPER
+  // ============================================================================
+  const CAPTIONS = [
+    { start: 3.6,  end: 6.1,  text: "Текст режется на токены" },
+    { start: 6.2,  end: 11.1, text: "Модель видит только номера" },
+    { start: 11.2, end: 14.1, text: "Весь текст целиком заходит в модель" },
+    { start: 14.2, end: 17.2, text: "Модель считает вероятности следующего токена" },
+    { start: 17.3, end: 21.1, text: "Сэмплер выбирает один токен, он дописывается в конец" },
+    { start: 21.2, end: 31.9, text: "И так по кругу, пока не выпадет токен конца" }
+  ];
+
+  function drawBottomCaption(t) {
+    for (const cap of CAPTIONS) {
+      if (t >= cap.start && t <= cap.end) {
+        const fadeIn = norm(t, cap.start, cap.start + 0.35);
+        const fadeOut = 1 - norm(t, cap.end - 0.35, cap.end);
+        const alpha = Math.min(fadeIn, fadeOut);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        ctx.font = '600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        const textW = ctx.measureText(cap.text).width;
+        const boxW = textW + 44;
+        const boxH = 48;
+        const boxX = (STAGE_W - boxW) / 2;
+        const boxY = 638;
+
+        // Pill backdrop
+        drawRoundedRect(ctx, boxX, boxY, boxW, boxH, 24);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+        ctx.stroke();
+
+        // Text
+        ctx.fillStyle = '#f8fafc';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(cap.text, STAGE_W / 2, boxY + boxH / 2 + 1);
+        ctx.restore();
+        break;
+      }
+    }
+  }
+
+  // ============================================================================
+  // 8. COMPONENT RENDERERS
+  // ============================================================================
+
+  // Step 1: Chat Input Bar at the bottom
+  function drawChatInputStep(t) {
+    if (t > 4.6) return;
+
+    const fadeOut = 1 - easeInOutCubic(norm(t, 3.6, 4.4));
+    if (fadeOut <= 0) return;
+
+    ctx.save();
+    ctx.globalAlpha = fadeOut;
+
+    const boxW = 940;
+    const boxH = 68;
+    const boxX = (STAGE_W - boxW) / 2;
+    const boxY = 545;
+
+    // Input bar background
+    drawRoundedRect(ctx, boxX, boxY, boxW, boxH, 16);
+    ctx.fillStyle = '#111827';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.stroke();
+
+    // Prompt icon on left
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(boxX + 32, boxY + boxH / 2, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Typed characters (0.2s to 3.2s)
+    const typeProgress = norm(t, 0.2, 3.15);
+    const charCount = Math.floor(typeProgress * FULL_USER_TEXT.length);
+    const visibleText = FULL_USER_TEXT.slice(0, charCount);
+
+    // If text rises at t > 3.5, hide text inside input box
+    if (t < 3.5) {
+      ctx.font = '500 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = '#f8fafc';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const textX = boxX + 56;
+      const textY = boxY + boxH / 2 + 1;
+      ctx.fillText(visibleText, textX, textY);
+
+      // Blinking cursor
+      const cursorX = textX + ctx.measureText(visibleText).width + 3;
+      if (Math.sin(t * 10) > -0.2 || typeProgress < 1) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(cursorX, boxY + 19, 2.5, 30);
+      }
+    }
+
+    // Subtle label above input
+    ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'left';
+    ctx.fillText('Запрос пользователя (промпт)', boxX + 8, boxY - 12);
+
+    ctx.restore();
+  }
+
+  // Draw a single token/bead morphing smoothly between Text Chip mode and Bead mode
+  // beadMorph: 0 = Text Chip (with text inside & optional ID underneath), 1 = Compact Bead (with ID inside)
+  function drawTokenElement(tok, state) {
+    const {
+      x, y, w, h,
+      chipColorAlpha = 0.25,
+      idBelowAlpha = 0,
+      beadMorph = 0,
+      highlightGlow = 0,
+      scale = 1,
+      alpha = 1,
+      showModelOutline = false
+    } = state;
+
+    if (alpha <= 0.001) return;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    if (scale !== 1) ctx.scale(scale, scale);
+
+    const isEOS = Boolean(tok.isEOS);
+    const radius = isEOS ? 6 : lerp(10, 17, beadMorph);
+
+    // Highlight glow (for the two " как" tokens or model tokens)
+    if (highlightGlow > 0) {
+      ctx.save();
+      ctx.shadowColor = tok.color;
+      ctx.shadowBlur = 22 * highlightGlow;
+      drawRoundedRect(ctx, -w / 2 - 2, -h / 2 - 2, w + 4, h + 4, radius + 2);
+      ctx.strokeStyle = hexToRgba(tok.color, 0.9 * highlightGlow);
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Background fill
+    const fillAlpha = lerp(chipColorAlpha, 0.88, beadMorph);
+    drawRoundedRect(ctx, -w / 2, -h / 2, w, h, radius);
+    ctx.fillStyle = chipColorAlpha <= 0.01 && beadMorph === 0
+      ? 'rgba(255,255,255,0)'
+      : hexToRgba(tok.color, fillAlpha);
+    ctx.fill();
+
+    // Border
+    const borderAlpha = lerp(chipColorAlpha * 2.5, 1, beadMorph);
+    if (borderAlpha > 0.02) {
+      ctx.lineWidth = showModelOutline ? 2.5 : (beadMorph > 0.5 ? 1.8 : 1.5);
+      ctx.strokeStyle = showModelOutline
+        ? '#ffffff'
+        : hexToRgba(tok.color, clamp(borderAlpha, 0, 1));
+      ctx.stroke();
+
+      if (showModelOutline) {
+        drawRoundedRect(ctx, -w / 2 - 3, -h / 2 - 3, w + 6, h + 6, radius + 3);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = hexToRgba(tok.color, 0.85);
+        ctx.stroke();
+      }
+    }
+
+    // 1. Token Letters (fade out as beadMorph -> 1)
+    const textAlpha = 1 - norm(beadMorph, 0, 0.55);
+    if (textAlpha > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = alpha * textAlpha;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      if (isEOS) {
+        ctx.font = '700 15px "JetBrains Mono", Consolas, monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('EOS', 0, 1);
+      } else {
+        // Render leading space with a subtle visible dot when chip is colored
+        const hasLeadingSpace = tok.text.startsWith(' ');
+        ctx.font = state.finalMode
+          ? '600 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+          : '600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillText(tok.text, 0, 1);
+
+        // Subtle space indicator dot on the leading space so tokenization rule is crystal clear
+        if (hasLeadingSpace && chipColorAlpha > 0.1) {
+          const fullW = ctx.measureText(tok.text).width;
+          const spaceW = ctx.measureText(' ').width;
+          const dotX = -fullW / 2 + spaceW / 2;
+          ctx.fillStyle = hexToRgba('#ffffff', 0.42 * (chipColorAlpha / 0.28));
+          ctx.beginPath();
+          ctx.arc(dotX, 1, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    // 2. Token ID Below the Chip (during Step 3 and Finale Step 8)
+    if (idBelowAlpha > 0.01 && !isEOS) {
+      ctx.save();
+      ctx.globalAlpha = alpha * idBelowAlpha * (1 - beadMorph);
+      ctx.font = '600 13px "JetBrains Mono", Consolas, monospace';
+      ctx.fillStyle = highlightGlow > 0.2 ? '#fbbf24' : '#94a3b8';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(tok.id, 0, h / 2 + 8);
+      ctx.restore();
+    }
+
+    // 3. Bead ID Inside the Bead (when beadMorph -> 1)
+    const beadTextAlpha = norm(beadMorph, 0.35, 0.9);
+    if (beadTextAlpha > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = alpha * beadTextAlpha;
+      ctx.font = isEOS
+        ? '700 13px "JetBrains Mono", Consolas, monospace'
+        : '700 12px "JetBrains Mono", Consolas, monospace';
+      ctx.fillStyle = '#090d16';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const label = isEOS ? 'EOS' : tok.id;
+      ctx.fillText(label, 0, 1);
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  // Draw Connecting Arc between the two " как" tokens (#4 and #13, 0-indexed)
+  function drawSameTokenHighlight(t) {
+    if (t < 7.3 || t > 9.7) return;
+    const pIn = easeOutCubic(norm(t, 7.3, 7.8));
+    const pOut = 1 - easeInOutCubic(norm(t, 9.2, 9.7));
+    const alpha = Math.min(pIn, pOut);
+    if (alpha <= 0.01) return;
+
+    const posA = layouts.splitCenter[4];
+    const posB = layouts.splitCenter[13];
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Upper connecting arch
+    const startX = posA.x;
+    const endX = posB.x;
+    const midX = (startX + endX) / 2;
+    const startY = posA.y - posA.h / 2 - 6;
+    const peakY = startY - 68;
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.quadraticCurveTo(midX, peakY, endX, startY);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2.2;
+    ctx.setLineDash([6, 5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Endpoint dots
+    [startX, endX].forEach(px => {
+      ctx.beginPath();
+      ctx.arc(px, startY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#fbbf24';
+      ctx.fill();
+    });
+
+    // Label pill at peak of arch
+    const label = "одинаковый токен « как» → один и тот же номер 6220";
+    ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const lw = ctx.measureText(label).width + 26;
+    const lh = 30;
+    const ly = (startY + peakY) / 2 - 4;
+
+    drawRoundedRect(ctx, midX - lw / 2, ly - lh / 2, lw, lh, 15);
+    ctx.fillStyle = 'rgba(245, 158, 11, 0.18)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.65)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#fde68a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, midX, ly + 1);
+
+    ctx.restore();
+  }
+
+  // Draw the Track & Model Box during Steps 4–7
+  function drawModelAndTrack(t, layerActivity) {
+    if (t < 10.8 || t > 33.4) return;
+    const enterAlpha = easeInOutCubic(norm(t, 10.8, 11.6));
+    const exitAlpha = 1 - easeInOutCubic(norm(t, 32.1, 33.1));
+    const alpha = Math.min(enterAlpha, exitAlpha);
+    if (alpha <= 0.01) return;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // 1. Subtle Loop Track Guide Line
+    const trackW = LOOP_TRACK.straightLen + LOOP_TRACK.radius * 2;
+    const trackH = LOOP_TRACK.radius * 2;
+    const trackX = LOOP_TRACK.leftX - LOOP_TRACK.radius;
+    const trackY = LOOP_TRACK.topY;
+
+    drawRoundedRect(ctx, trackX, trackY, trackW, trackH, LOOP_TRACK.radius);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.14)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 8]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Direction arrows on bottom track (pointing right-to-left)
+    const arrowPositions = [420, 680, 940];
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.28)';
+    arrowPositions.forEach(ax => {
+      const ay = LOOP_TRACK.bottomY;
+      ctx.beginPath();
+      ctx.moveTo(ax - 7, ay);
+      ctx.lineTo(ax + 5, ay - 5);
+      ctx.lineTo(ax + 5, ay + 5);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    // 2. Model Box Container
+    const { x, y, w, h } = MBOX;
+
+    // Outer ambient glow when processing
+    if (layerActivity > 0.01) {
+      ctx.save();
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 28 * layerActivity;
+      drawRoundedRect(ctx, x, y, w, h, 18);
+      ctx.strokeStyle = `rgba(56, 189, 248, ${0.45 * layerActivity})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Box Backdrop
+    drawRoundedRect(ctx, x, y, w, h, 18);
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, 'rgba(15, 23, 42, 0.95)');
+    grad.addColorStop(1, 'rgba(10, 15, 29, 0.95)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+    ctx.stroke();
+
+    // Left Entry & Right Exit Port Notches
+    const portH = 44;
+    const portY = LOOP_TRACK.topY - portH / 2;
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(x - 3, portY, 6, portH);
+    ctx.fillRect(x + w - 3, portY, 6, portH);
+
+    // 5 Horizontal Neural Layers inside the Model Box
+    const numLayers = 5;
+    const layerPadX = 24;
+    const layerStartY = y + 54;
+    const layerGap = 25;
+
+    for (let i = 0; i < numLayers; i++) {
+      const ly = layerStartY + i * layerGap;
+      const wave = layerActivity > 0
+        ? 0.5 + 0.5 * Math.sin(t * 9 - i * 0.9)
+        : 0;
+      const activeIntensity = layerActivity * wave;
+
+      drawRoundedRect(ctx, x + layerPadX, ly - 5, w - layerPadX * 2, 10, 5);
+      ctx.fillStyle = activeIntensity > 0.05
+        ? `rgba(56, 189, 248, ${0.18 + 0.55 * activeIntensity})`
+        : 'rgba(148, 163, 184, 0.13)';
+      ctx.fill();
+
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = activeIntensity > 0.05
+        ? `rgba(125, 211, 252, ${0.4 + 0.5 * activeIntensity})`
+        : 'rgba(148, 163, 184, 0.2)';
+      ctx.stroke();
+    }
+
+    // Header Label "Модель"
+    ctx.font = '700 19px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Модель', x + w / 2, y + 16);
+
+    ctx.restore();
+  }
+
+  // Draw Probability Bars Chart above the right side of the Model Box
+  function drawProbabilityChart(roundIdx, growProgress, highlightProgress, fadeOutProgress) {
+    const alpha = clamp(growProgress * 3, 0, 1) * (1 - fadeOutProgress);
+    if (alpha <= 0.01) return;
+
+    const roundInfo = ROUNDS_DATA[roundIdx];
+    const candidates = roundInfo.candidates;
+    const winToken = MODEL_TOKENS[roundInfo.spawnTokenIndex];
+
+    // Panel positioned above the right side of the Model box
+    const panelX = 365;
+    const panelY = 42;
+    const panelW = 520;
+    const panelH = 186;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // Panel container
+    drawRoundedRect(ctx, panelX, panelY, panelW, panelH, 14);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+    ctx.stroke();
+
+    // Small corner note: "вероятности для примера"
+    ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('вероятности для примера', panelX + panelW - 14, panelY + panelH - 10);
+
+    // Vertical column bars growing upwards
+    const numBars = candidates.length;
+    const chartLeft = panelX + 28;
+    const chartRight = panelX + panelW - 28;
+    const chartBottom = panelY + 132;
+    const maxBarH = 74;
+    const slotW = (chartRight - chartLeft) / numBars;
+    const barW = Math.min(64, slotW * 0.56);
+
+    let winnerCenter = { x: panelX + panelW / 2, y: chartBottom - 40 };
+
+    candidates.forEach((cand, idx) => {
+      const cx = chartLeft + slotW * (idx + 0.5);
+      const easeGrow = easeOutCubic(growProgress);
+      const targetH = Math.max(8, (cand.pct / 100) * maxBarH);
+      const curH = targetH * easeGrow;
+      const bx = cx - barW / 2;
+      const by = chartBottom - curH;
+
+      const isWin = cand.winner && highlightProgress > 0;
+
+      if (cand.winner) {
+        winnerCenter = { x: cx, y: by - 14 };
+      }
+
+      // Bar glow if selected
+      if (isWin) {
+        ctx.save();
+        ctx.shadowColor = winToken.color;
+        ctx.shadowBlur = 18 * highlightProgress;
+        drawRoundedRect(ctx, bx - 2, by - 2, barW + 4, curH + 4, 7);
+        ctx.strokeStyle = winToken.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Bar fill
+      drawRoundedRect(ctx, bx, by, barW, curH, 6);
+      ctx.fillStyle = isWin
+        ? winToken.color
+        : (cand.winner ? hexToRgba(winToken.color, 0.65) : 'rgba(100, 116, 139, 0.45)');
+      ctx.fill();
+
+      // Percentage above bar
+      ctx.font = '700 14px "JetBrains Mono", Consolas, monospace';
+      ctx.fillStyle = isWin ? '#ffffff' : '#cbd5e1';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const shownPct = Math.round(cand.pct * easeGrow);
+      ctx.fillText(`${shownPct}%`, cx, by - 5);
+
+      // Token label below baseline
+      ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = isWin ? winToken.color : '#e2e8f0';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(cand.label, cx, chartBottom + 8);
+    });
+
+    // Baseline
+    ctx.beginPath();
+    ctx.moveTo(chartLeft, chartBottom);
+    ctx.lineTo(chartRight, chartBottom);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+    return winnerCenter;
+  }
+
+  // ============================================================================
+  // 9. MASTER SCENE RENDERER AT TIME `t`
+  // ============================================================================
+  function renderScene(t) {
+    ctx.clearRect(0, 0, STAGE_W, STAGE_H);
+
+    // ------------------------------------------------------------------------
+    // PHASE A: Step 1 (Typing) & Step 2 (Split into Tokens) & Step 3 (Beads)
+    // ------------------------------------------------------------------------
+    drawChatInputStep(t);
+
+    if (t >= 3.5 && t < 11.2) {
+      // Transition from bottom input box (3.5s) to center split tokens (4.5s)
+      const riseP = easeInOutCubic(norm(t, 3.5, 4.45));
+      const splitP = easeInOutCubic(norm(t, 4.2, 5.2));
+      const idAppearP = easeOutCubic(norm(t, 6.2, 7.2));
+      const sameGlowP = (t >= 7.3 && t <= 9.6)
+        ? Math.min(norm(t, 7.3, 7.8), 1 - norm(t, 9.1, 9.6))
+        : 0;
+      const beadMorphP = easeInOutCubic(norm(t, 9.6, 11.0));
+
+      // Compute starting unsplit positions (as a single continuous line of text)
+      ctx.font = '600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      const fullLineW = ctx.measureText(FULL_USER_TEXT).width;
+      const unsplitStartX = (STAGE_W - fullLineW) / 2;
+      let runningTextW = 0;
+
+      // Draw connecting lines between beads as they morph into a chain (t > 9.8)
+      if (beadMorphP > 0.2) {
+        ctx.save();
+        ctx.globalAlpha = (beadMorphP - 0.2) / 0.8;
+        ctx.beginPath();
+        for (let i = 0; i < BASE_TOKENS.length; i++) {
+          const splitPos = layouts.splitCenter[i];
+          const beadPos = layouts.beadLine[i];
+          const bx = lerp(splitPos.x, beadPos.x, beadMorphP);
+          const by = lerp(splitPos.y, beadPos.y, beadMorphP);
+          if (i === 0) ctx.moveTo(bx, by);
+          else ctx.lineTo(bx, by);
+        }
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      BASE_TOKENS.forEach((tok, i) => {
+        ctx.font = '600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        const rawW = ctx.measureText(tok.text).width;
+        const unsplitX = unsplitStartX + runningTextW + rawW / 2;
+        runningTextW += rawW;
+
+        const unsplitY = lerp(579, 300, riseP);
+        const splitPos = layouts.splitCenter[i];
+        const beadPos = layouts.beadLine[i];
+
+        const midX = lerp(unsplitX, splitPos.x, splitP);
+        const midY = lerp(unsplitY, splitPos.y, splitP);
+
+        const curX = lerp(midX, beadPos.x, beadMorphP);
+        const curY = lerp(midY, beadPos.y, beadMorphP);
+        const curW = lerp(splitPos.w, beadPos.w, beadMorphP);
+        const curH = lerp(splitPos.h, beadPos.h, beadMorphP);
+
+        const isSame = Boolean(tok.isSamePair);
+        const pulse = isSame ? sameGlowP * (0.75 + 0.25 * Math.sin(t * 8)) : 0;
+
+        drawTokenElement(tok, {
+          x: curX,
+          y: curY,
+          w: curW,
+          h: curH,
+          chipColorAlpha: splitP * 0.28,
+          idBelowAlpha: idAppearP,
+          beadMorph: beadMorphP,
+          highlightGlow: pulse
+        });
+      });
+
+      drawSameTokenHighlight(t);
+    }
+
+    // ------------------------------------------------------------------------
+    // PHASE B: Steps 4–7 (The 4 Autoregressive Loop Rounds, 11.2s – 32.0s)
+    // ------------------------------------------------------------------------
+    if (t >= 11.2 && t < 32.0) {
+      // Find active round
+      let activeRound = ROUND_TIMINGS[0];
+      for (const r of ROUND_TIMINGS) {
+        if (t >= r.tStart && t <= r.tExitEnd) {
+          activeRound = r;
+          break;
+        }
+      }
+
+      const { roundIndex, inCount, tStart, tEnterEnd, tBarsEnd, tExitEnd } = activeRound;
+      const pEnter = easeInOutCubic(norm(t, tStart, tEnterEnd));
+      const pBars  = norm(t, tEnterEnd, tBarsEnd);
+      const pExit  = norm(t, tBarsEnd, tExitEnd);
+
+      // Compute neural layer activity inside the Model box
+      let layerActivity = 0;
+      if (t >= tStart && t <= tExitEnd) {
+        const enterRamp = norm(t, tStart + 0.3 * (tEnterEnd - tStart), tEnterEnd);
+        const exitRamp = 1 - norm(t, tBarsEnd, tBarsEnd + 0.65 * (tExitEnd - tBarsEnd));
+        layerActivity = Math.min(enterRamp, exitRamp);
+      }
+
+      drawModelAndTrack(t, layerActivity);
+
+      // Determine probability chart growth, highlight, and fade
+      const barGrowP = easeOutCubic(norm(pBars, 0.0, 0.62));
+      const barHighP = easeOutCubic(norm(pBars, 0.58, 0.95));
+      const barFadeP = easeInOutCubic(norm(pExit, 0.55, 0.95));
+      const winnerOrigin = drawProbabilityChart(roundIndex, barGrowP, barHighP, barFadeP) || { x: 460, y: 120 };
+
+      // Calculate Track Positions for the `inCount` existing beads
+      // Outside pitch is 41px; inside the Model box, pitch compresses to 14.5px so the ENTIRE chain fits inside MBOX!
+      const OUTSIDE_PITCH = 41;
+      const INSIDE_PITCH = 14.5;
+
+      // Center of the chain inside the Model box is at `s = MBOX.sCenter` (192.5)
+      // When the chain has exited to the right of the Model box, its first bead (index 0) is at `s = 360` (`x = 505`),
+      // and its last bead (index `inCount - 1`) is at `s = 360 + (inCount - 1) * 41`!
+      const exitedFirstS = 360;
+      const exitedCenterS = exitedFirstS + ((inCount - 1) * OUTSIDE_PITCH) / 2;
+
+      // In Round 0, at t = 11.2, the chain starts from `layouts.beadLine` and enters the Model box from the left.
+      // In Rounds 1..3, at `tStart`, the chain starts from the previous round's exited position on the right of the Model box,
+      // travels forward around the loop track (`s` increases by `LOOP_TRACK.totalLen`), and enters the Model box from the left (`MBOX.sCenter + LOOP_TRACK.totalLen`)!
+
+      let curCenterS = MBOX.sCenter;
+      let curPitch = INSIDE_PITCH;
+
+      if (t <= tEnterEnd) {
+        if (roundIndex === 0) {
+          // Round 0: Smoothly move from initial beadLine into the left side of the Model box
+          // Start center is on the left (`s = -160`, approaching left entrance `s = 60`), ending at `MBOX.sCenter` (`192.5`)
+          curCenterS = lerp(-120, MBOX.sCenter, pEnter);
+          curPitch = lerp(OUTSIDE_PITCH, INSIDE_PITCH, easeInOutCubic(norm(pEnter, 0.35, 1.0)));
+        } else {
+          // Rounds 1..3: Previous round ended with `inCount` beads (0 .. inCount-1) at `exitedFirstS`
+          const prevExitedCenterS = exitedFirstS + ((inCount - 1) * OUTSIDE_PITCH) / 2;
+          const targetInsideCenterS = MBOX.sCenter + LOOP_TRACK.totalLen;
+          curCenterS = lerp(prevExitedCenterS, targetInsideCenterS, pEnter);
+          // Compress pitch as the chain enters the left side of the Model box (last 28% of loop travel)
+          curPitch = lerp(OUTSIDE_PITCH, INSIDE_PITCH, easeInOutCubic(norm(pEnter, 0.72, 1.0)));
+        }
+      } else if (t <= tBarsEnd) {
+        // Chain is completely inside the Model box while probabilities are computed
+        curCenterS = MBOX.sCenter + lerp(0, 12, pBars);
+        curPitch = INSIDE_PITCH;
+      } else {
+        // Chain exits the right side of the Model box intact (`s` goes from `MBOX.sCenter + 12` to `exitedCenterS`)
+        const exitEase = easeInOutCubic(norm(pExit, 0.0, 0.78));
+        curCenterS = lerp(MBOX.sCenter + 12, exitedCenterS, exitEase);
+        curPitch = lerp(INSIDE_PITCH, OUTSIDE_PITCH, exitEase);
+      }
+
+      // Compute individual (x, y) for each of the `inCount` beads
+      const beadPositions = [];
+      for (let i = 0; i < inCount; i++) {
+        const offsetFromCenter = (i - (inCount - 1) / 2) * curPitch;
+        const s_i = curCenterS + offsetFromCenter;
+        let pt = LOOP_TRACK.getPointAtS(s_i);
+
+        // For Round 0 initial entry (t < 12.2), blend smoothly from `layouts.beadLine[i]`
+        if (roundIndex === 0 && t < 12.4) {
+          const blend = easeInOutCubic(norm(t, 11.2, 12.2));
+          const startPt = layouts.beadLine[i];
+          pt = {
+            x: lerp(startPt.x, pt.x, blend),
+            y: lerp(startPt.y, pt.y, blend)
+          };
+        }
+        beadPositions.push(pt);
+      }
+
+      // Check if the newly sampled bead (index `inCount`) is spawning & attaching
+      const newToken = MODEL_TOKENS[ROUNDS_DATA[roundIndex].spawnTokenIndex];
+      const spawnAppearP = easeOutBack(norm(pBars, 0.72, 1.0));
+      const attachMoveP = easeInOutCubic(norm(pExit, 0.15, 0.85));
+
+      let newBeadPos = null;
+      if (spawnAppearP > 0.01) {
+        const targetEndS = exitedFirstS + inCount * OUTSIDE_PITCH;
+        const targetEndPt = LOOP_TRACK.getPointAtS(targetEndS);
+        newBeadPos = {
+          x: lerp(winnerOrigin.x, targetEndPt.x, attachMoveP),
+          y: lerp(winnerOrigin.y, targetEndPt.y, attachMoveP)
+        };
+      }
+
+      // Draw connecting chain link line through all active beads
+      ctx.save();
+      ctx.beginPath();
+      beadPositions.forEach((pt, i) => {
+        if (i === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
+      if (newBeadPos && attachMoveP > 0.6) {
+        ctx.lineTo(newBeadPos.x, newBeadPos.y);
+      }
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.42)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+
+      // Draw all `inCount` beads
+      const compactRatio = norm(curPitch, OUTSIDE_PITCH, INSIDE_PITCH);
+      const curBeadW = lerp(46, 36, compactRatio);
+      const curBeadH = lerp(32, 26, compactRatio);
+
+      for (let i = 0; i < inCount; i++) {
+        const tok = ALL_TOKENS[i];
+        const pt = beadPositions[i];
+        drawTokenElement(tok, {
+          x: pt.x,
+          y: pt.y,
+          w: curBeadW,
+          h: curBeadH,
+          beadMorph: 1,
+          showModelOutline: tok.isModel
+        });
+      }
+
+      // Draw newly spawned bead flying from winning probability bar to the tail end of the chain
+      if (newBeadPos) {
+        drawTokenElement(newToken, {
+          x: newBeadPos.x,
+          y: newBeadPos.y,
+          w: 46,
+          h: 32,
+          beadMorph: 1,
+          scale: clamp(spawnAppearP, 0, 1.15),
+          highlightGlow: 1 - attachMoveP * 0.5,
+          showModelOutline: true
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // PHASE C: Step 8 — Finale: Unfolding Chain Back into Text (32.0s – 38.0s)
+    // ------------------------------------------------------------------------
+    if (t >= 32.0) {
+      drawModelAndTrack(t, 0);
+
+      // At t = 32.0, all 18 beads are at their Round 4 exited positions:
+      // `s_i = 360 + i * 41` for `i = 0 .. 17`
+      const unfoldMoveP = easeInOutCubic(norm(t, 32.2, 33.8));
+      const unfoldMorphP = 1 - easeInOutCubic(norm(t, 33.2, 34.5)); // 1 -> 0 (Bead -> Text Chip)
+      const idFadeInP = easeOutCubic(norm(t, 34.0, 34.9));
+      const quoteNoteP = easeOutCubic(norm(t, 34.5, 35.5));
+
+      const OUTSIDE_PITCH = 41;
+      const exitedFirstS = 360;
+
+      // Draw connecting chain line while still in bead state
+      if (unfoldMorphP > 0.2) {
+        ctx.save();
+        ctx.globalAlpha = (unfoldMorphP - 0.2) / 0.8;
+        ctx.beginPath();
+        for (let i = 0; i < ALL_TOKENS.length; i++) {
+          const startPt = LOOP_TRACK.getPointAtS(exitedFirstS + i * OUTSIDE_PITCH);
+          const endPt = layouts.finalUnfold[i];
+          const x = lerp(startPt.x, endPt.x, unfoldMoveP);
+          const y = lerp(startPt.y, endPt.y, unfoldMoveP);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Draw each of the 18 tokens (14 user + 3 model words + 1 EOS square badge)
+      ALL_TOKENS.forEach((tok, i) => {
+        const startPt = LOOP_TRACK.getPointAtS(exitedFirstS + i * OUTSIDE_PITCH);
+        const endPt = layouts.finalUnfold[i];
+
+        const curX = lerp(startPt.x, endPt.x, unfoldMoveP);
+        const curY = lerp(startPt.y, endPt.y, unfoldMoveP);
+        const curW = lerp(endPt.w, 46, unfoldMorphP);
+        const curH = lerp(endPt.h, 32, unfoldMorphP);
+
+        // User tokens get clean subtle background, Model tokens get bright glowing outline
+        const isModelWord = tok.isModel && !tok.isEOS;
+
+        drawTokenElement(tok, {
+          x: curX,
+          y: curY,
+          w: curW,
+          h: curH,
+          chipColorAlpha: tok.isEOS ? 0.85 : (isModelWord ? 0.34 : 0.22),
+          idBelowAlpha: idFadeInP,
+          beadMorph: unfoldMorphP,
+          highlightGlow: isModelWord ? (1 - unfoldMorphP) * 0.65 : 0,
+          showModelOutline: tok.isModel,
+          finalMode: true
+        });
+      });
+
+      // Legend badges above User vs Model tokens + Picasso attribution below
+      if (quoteNoteP > 0.01) {
+        ctx.save();
+        ctx.globalAlpha = quoteNoteP;
+
+        // Bracket / label for User Prompt tokens (0..13)
+        const uFirst = layouts.finalUnfold[0];
+        const uLast = layouts.finalUnfold[13];
+        const uMidX = (uFirst.x - uFirst.w / 2 + uLast.x + uLast.w / 2) / 2;
+
+        // Bracket / label for Model Generated tokens (14..16)
+        const mFirst = layouts.finalUnfold[14];
+        const mLast = layouts.finalUnfold[16];
+        const mMidX = (mFirst.x - mFirst.w / 2 + mLast.x + mLast.w / 2) / 2;
+
+        const bracketY = 266;
+
+        // User bracket line
+        ctx.beginPath();
+        ctx.moveTo(uFirst.x - uFirst.w / 2 + 4, bracketY + 8);
+        ctx.lineTo(uFirst.x - uFirst.w / 2 + 4, bracketY);
+        ctx.lineTo(uLast.x + uLast.w / 2 - 4, bracketY);
+        ctx.lineTo(uLast.x + uLast.w / 2 - 4, bracketY + 8);
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.font = '500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('текст пользователя (14 токенов)', uMidX, bracketY - 6);
+
+        // Model bracket line
+        ctx.beginPath();
+        ctx.moveTo(mFirst.x - mFirst.w / 2 + 2, bracketY + 8);
+        ctx.lineTo(mFirst.x - mFirst.w / 2 + 2, bracketY);
+        ctx.lineTo(mLast.x + mLast.w / 2 - 2, bracketY);
+        ctx.lineTo(mLast.x + mLast.w / 2 - 2, bracketY + 8);
+        ctx.strokeStyle = '#fb923c';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#fdba74';
+        ctx.fillText('дописала модель', mMidX, bracketY - 6);
+
+        // Attribution note below
+        ctx.font = '400 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Цитату приписывают Пабло Пикассо', STAGE_W / 2, 415);
+
+        ctx.restore();
+      }
+    }
+
+    // Draw step caption at bottom center
+    drawBottomCaption(t);
+  }
+
+  // ============================================================================
+  // 10. ANIMATION LOOP (PAUSABLE CLOCK)
+  // ============================================================================
+  function tick(timestamp) {
+    if (lastFrameTimestamp === null) {
+      lastFrameTimestamp = timestamp;
+    }
+    const dt = Math.min((timestamp - lastFrameTimestamp) / 1000, 0.1);
+    lastFrameTimestamp = timestamp;
+
+    if (isPlaying) {
+      animTime += dt;
+      if (animTime >= TIMELINE_END) {
+        animTime = TIMELINE_END;
+        isPlaying = false;
+        updateUIState();
+      }
+    }
+
+    renderScene(animTime);
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
