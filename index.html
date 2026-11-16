@@ -68,9 +68,10 @@
     width: 1280px;
     height: 720px;
     display: block;
+    z-index: 1;
   }
 
-  /* Controls Hint Bar (Interactive Buttons + Hidden with H) */
+  /* Controls Hint Bar (Hidden with H) */
   #controls-bar {
     position: absolute;
     top: 18px;
@@ -80,80 +81,93 @@
     align-items: center;
     background: rgba(15, 23, 42, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.14);
-    padding: 7px 12px;
+    padding: 6px 10px;
     border-radius: 10px;
     font-size: 13px;
     color: #cbd5e1;
     backdrop-filter: blur(8px);
-    transition: opacity 0.25s ease, transform 0.25s ease;
-    z-index: 30;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 99999;
     pointer-events: auto;
   }
 
-  #controls-bar.hidden {
+  #controls-bar.hud-hidden {
+    display: none !important;
     opacity: 0;
-    transform: translateY(-8px);
     pointer-events: none;
   }
 
   .ctrl-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     color: #e2e8f0;
     font-family: var(--font-sans);
     font-size: 13px;
-    font-weight: 500;
-    padding: 5px 11px;
+    padding: 5px 10px;
     border-radius: 7px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    pointer-events: auto;
+    outline: none;
   }
 
   .ctrl-btn:hover {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(56, 189, 248, 0.45);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.28);
   }
 
-  .ctrl-btn:active {
-    transform: scale(0.96);
+  .ctrl-btn:active,
+  .ctrl-btn.flash-active {
+    background: rgba(249, 115, 22, 0.28);
+    border-color: rgba(249, 115, 22, 0.75);
+    transform: scale(0.97);
+  }
+
+  /* Tiny restore button when HUD is hidden */
+  #hud-restore-btn {
+    position: absolute;
+    top: 14px;
+    left: 16px;
+    z-index: 99999;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #f8fafc;
+    font-size: 12px;
+    line-height: 1;
+    padding: 5px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+    opacity: 0.15;
+    transition: opacity 0.2s ease, background 0.2s ease;
+    display: none;
+    pointer-events: auto;
+    outline: none;
+  }
+
+  #hud-restore-btn.visible {
+    display: block;
+  }
+
+  #hud-restore-btn:hover {
+    opacity: 0.85;
+    background: rgba(15, 23, 42, 0.92);
   }
 
   .key-badge {
     display: inline-block;
     background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.24);
+    border: 1px solid rgba(255, 255, 255, 0.22);
     color: #fff;
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 600;
-    padding: 1px 6px;
+    padding: 2px 6px;
     border-radius: 4px;
-  }
-
-  /* Tiny unobtrusive corner restore dot when controls are hidden (for mobile/touch) */
-  #restore-dot {
-    position: absolute;
-    top: 14px;
-    left: 14px;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    z-index: 31;
-    cursor: pointer;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    color: rgba(255, 255, 255, 0.25);
-    font-size: 11px;
-  }
-
-  #restore-dot.visible {
-    display: flex;
   }
 
   .status-dot {
@@ -162,7 +176,7 @@
     border-radius: 50%;
     background: #22c55e;
     box-shadow: 0 0 8px #22c55e;
-    margin-right: 2px;
+    flex-shrink: 0;
   }
 
   .status-dot.paused {
@@ -173,65 +187,105 @@
   /* Start Overlay Prompt */
   #start-prompt {
     position: absolute;
-    top: 26px;
+    bottom: 26px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(249, 115, 22, 0.18);
-    border: 1px solid rgba(249, 115, 22, 0.55);
-    color: #ffedd5;
-    padding: 9px 22px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #e2e8f0;
+    padding: 8px 20px;
     border-radius: 999px;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 500;
     letter-spacing: 0.2px;
-    z-index: 25;
-    cursor: pointer;
-    transition: opacity 0.35s ease, transform 0.35s ease;
-    box-shadow: 0 8px 25px rgba(249, 115, 22, 0.15);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+    z-index: 10;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
   }
 
   #start-prompt.hidden {
     opacity: 0;
-    transform: translate(-50%, -10px);
+    transform: translateX(-50%) translateY(10px);
+  }
+
+  /* Channel Watermark */
+  #watermark {
+    position: absolute;
+    bottom: 18px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(248, 250, 252, 0.55);
+    letter-spacing: 0.3px;
+    z-index: 10;
     pointer-events: none;
   }
 
-  /* Always-on Watermark in bottom right */
-  #watermark {
-    position: absolute;
-    bottom: 22px;
-    right: 28px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-    color: rgba(248, 250, 252, 0.68);
-    z-index: 20;
-<div id="stage-wrapper" tabindex="0">
+  .fox-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+  }
+</style>
+</head>
+<body tabindex="0" style="outline: none;">
+
+<div id="stage-wrapper">
   <div class="bg-grid"></div>
   <canvas id="anim-canvas"></canvas>
 
-  <!-- Interactive Control Buttons (Works via Mouse, Touch, and Keyboard) -->
-  <div id="controls-bar">
-    <div id="play-indicator" class="status-dot paused"></div>
-    <button type="button" id="btn-play" class="ctrl-btn" title="Пробел — Старт или пауза">
+  <!-- Toggleable Keyboard & Touch Hint Bar -->
+  <div id="controls-bar" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation()">
+    <button
+      id="btn-toggle"
+      type="button"
+      class="ctrl-btn"
+      onpointerdown="event.stopPropagation()"
+      onclick="event.stopPropagation(); window.appTogglePlay(this);"
+      title="Старт или пауза (Пробел)"
+    >
+      <span id="play-indicator" class="status-dot paused"></span>
       <span class="key-badge">Пробел</span>
-      <span id="btn-play-label">Старт / Пауза</span>
+      <span id="toggle-label">Старт / Пауза</span>
     </button>
-    <button type="button" id="btn-restart" class="ctrl-btn" title="R (К) — Начать заново">
+
+    <button
+      id="btn-restart"
+      type="button"
+      class="ctrl-btn"
+      onpointerdown="event.stopPropagation()"
+      onclick="event.stopPropagation(); window.appRestart(this);"
+      title="Начать заново с 0-й секунды (R)"
+    >
       <span class="key-badge">R</span>
       <span>Сначала</span>
     </button>
-    <button type="button" id="btn-hide" class="ctrl-btn" title="H (Р) — Скрыть панель для записи">
+
+    <button
+      id="btn-hide"
+      type="button"
+      class="ctrl-btn"
+      onpointerdown="event.stopPropagation()"
+      onclick="event.stopPropagation(); window.appToggleHud(this);"
+      title="Скрыть или показать подсказку (H)"
+    >
       <span class="key-badge">H</span>
-      <span>Скрыть панель</span>
+      <span>Скрыть подсказку</span>
     </button>
   </div>
 
-  <!-- Subtle corner button to restore hidden panel on touchscreen -->
-  <div id="restore-dot" title="Показать панель управления (H)">•••</div>
+  <!-- Subtle corner button to bring HUD back on mobile/mouse when hidden -->
+  <button
+    id="hud-restore-btn"
+    type="button"
+    onpointerdown="event.stopPropagation()"
+    onclick="event.stopPropagation(); window.appToggleHud(this);"
+    title="Показать панель управления (H)"
+  >•••</button>
 
   <!-- Initial Start Banner -->
   <div id="start-prompt">Нажмите Пробел или кликните для старта анимации</div>
@@ -251,23 +305,20 @@
   "use strict";
 
   // ============================================================================
-  // 1. STAGE SCALING & HI-DPI CANVAS SETUP
+  // 1. STAGE & CANVAS SETUP (1280x720, HiDPI, Auto-Scale)
   // ============================================================================
   const STAGE_W = 1280;
   const STAGE_H = 720;
+  const TIMELINE_END = 38.0;
+
   const stageWrapper = document.getElementById('stage-wrapper');
   const canvas = document.getElementById('anim-canvas');
   const ctx = canvas.getContext('2d');
   const controlsBar = document.getElementById('controls-bar');
-  const restoreDot = document.getElementById('restore-dot');
   const startPrompt = document.getElementById('start-prompt');
   const playIndicator = document.getElementById('play-indicator');
-  const btnPlay = document.getElementById('btn-play');
-  const btnPlayLabel = document.getElementById('btn-play-label');
-  const btnRestart = document.getElementById('btn-restart');
-  const btnHide = document.getElementById('btn-hide');
 
-  function resizeStage() {
+  function setupCanvasAndScale() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     canvas.width = STAGE_W * dpr;
     canvas.height = STAGE_H * dpr;
@@ -275,32 +326,269 @@
 
     const scaleX = window.innerWidth / STAGE_W;
     const scaleY = window.innerHeight / STAGE_H;
-    const scale = Math.min(scaleX, scaleY) * 0.98;
+    const scale = Math.min(scaleX, scaleY) * 0.96;
     stageWrapper.style.transform = `scale(${scale})`;
   }
 
-  window.addEventListener('resize', resizeStage);
-  resizeStage();
+  window.addEventListener('resize', setupCanvasAndScale);
+  setupCanvasAndScale();
 
   // ============================================================================
-  // 6. PLAYBACK STATE & CONTROLS (SPACE, R/К, H/Р, CLICK & TOUCH BUTTONS)
+  // 2. EXACT TOKENIZATION DATA (o200k_base)
+  // ============================================================================
+  const FULL_USER_TEXT = "Изучай правила как профессионал, чтобы потом разрушить их как";
+
+  const BASE_TOKENS = [
+    { text: "Из",          id: "55428",  color: "#38bdf8" },
+    { text: "уч",          id: "4497",   color: "#a78bfa" },
+    { text: "ай",          id: "2568",   color: "#34d399" },
+    { text: " правила",    id: "69862",  color: "#f472b6" },
+    { text: " как",        id: "6220",   color: "#f59e0b", isSamePair: true },
+    { text: " профессион", id: "52129",  color: "#60a5fa" },
+    { text: "ал",          id: "1019",   color: "#a3e635" },
+    { text: ",",           id: "11",     color: "#fb7185" },
+    { text: " чтобы",      id: "15419",  color: "#2dd4bf" },
+    { text: " потом",      id: "50906",  color: "#c084fc" },
+    { text: " разруш",     id: "135165", color: "#fb923c" },
+    { text: "ить",         id: "3707",   color: "#818cf8" },
+    { text: " их",         id: "11229",  color: "#4ade80" },
+    { text: " как",        id: "6220",   color: "#f59e0b", isSamePair: true }
+  ];
+
+  const MODEL_TOKENS = [
+    { text: " худож", id: "122819", color: "#fb923c", isModel: true },
+    { text: "ник",    id: "11072",  color: "#38bdf8", isModel: true },
+    { text: ".",      id: "13",     color: "#f472b6", isModel: true },
+    { text: "EOS",    id: "",       color: "#ef4444", isModel: true, isEOS: true }
+  ];
+
+  const ALL_TOKENS = [...BASE_TOKENS, ...MODEL_TOKENS];
+
+  // ============================================================================
+  // 3. GENERATION ROUNDS & TIMINGS
+  // ============================================================================
+  const ROUNDS_DATA = [
+    {
+      spawnTokenIndex: 0,
+      candidates: [
+        { label: "« худож»",  pct: 71, winner: true },
+        { label: "« мастер»", pct: 9,  winner: false },
+        { label: "« твор»",   pct: 5,  winner: false },
+        { label: "« бог»",    pct: 3,  winner: false }
+      ]
+    },
+    {
+      spawnTokenIndex: 1,
+      candidates: [
+        { label: "«ник»",  pct: 95, winner: true },
+        { label: "«ница»", pct: 4,  winner: false }
+      ]
+    },
+    {
+      spawnTokenIndex: 2,
+      candidates: [
+        { label: "«.»", pct: 46, winner: true },
+        { label: "«»",  pct: 21, winner: false },
+        { label: "«!»", pct: 9,  winner: false },
+        { label: "«,»", pct: 7,  winner: false }
+      ]
+    },
+    {
+      spawnTokenIndex: 3,
+      candidates: [
+        { label: "EOS (конец)",       pct: 82, winner: true },
+        { label: "⏎ перенос строки", pct: 9,  winner: false },
+        { label: "« П»",              pct: 4,  winner: false }
+      ]
+    }
+  ];
+
+  // Round 1 is slow & detailed (~9.8s); Rounds 2, 3, 4 progressively speed up
+  const ROUND_TIMINGS = [
+    { roundIndex: 0, inCount: 14, tStart: 11.2, tEnterEnd: 14.0, tBarsEnd: 18.2, tExitEnd: 21.0 },
+    { roundIndex: 1, inCount: 15, tStart: 21.0, tEnterEnd: 22.8, tBarsEnd: 24.4, tExitEnd: 25.8 },
+    { roundIndex: 2, inCount: 16, tStart: 25.8, tEnterEnd: 27.1, tBarsEnd: 28.1, tExitEnd: 29.1 },
+    { roundIndex: 3, inCount: 17, tStart: 29.1, tEnterEnd: 30.1, tBarsEnd: 31.1, tExitEnd: 32.0 }
+  ];
+
+  // ============================================================================
+  // 4. MATH & DRAWING UTILITIES
+  // ============================================================================
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  function norm(v, a, b) {
+    if (b === a) return 0;
+    return clamp((v - a) / (b - a), 0, 1);
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  function easeOutBack(t) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+
+  function hexToRgba(hex, alpha) {
+    const clean = hex.replace('#', '');
+    const num = parseInt(clean, 16);
+    const r = (num >> 16) & 255;
+    const g = (num >> 8) & 255;
+    const b = num & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function drawRoundedRect(context, x, y, w, h, r) {
+    const radius = Math.min(r, w / 2, h / 2);
+    context.beginPath();
+    context.moveTo(x + radius, y);
+    context.arcTo(x + w, y, x + w, y + h, radius);
+    context.arcTo(x + w, y + h, x, y + h, radius);
+    context.arcTo(x, y + h, x, y, radius);
+    context.arcTo(x, y, x + w, y, radius);
+    context.closePath();
+  }
+
+  // ============================================================================
+  // 5. GEOMETRY & TRACK CALCULATIONS
+  // ============================================================================
+  const LOOP_TRACK = {
+    leftX: 145,
+    rightX: 1135,
+    topY: 340,
+    bottomY: 540,
+    radius: 100,
+    straightLen: 1135 - 145,
+    arcLen: Math.PI * 100,
+    get totalLen() {
+      return 2 * this.straightLen + 2 * this.arcLen;
+    },
+    getPointAtS(s) {
+      const L = this.totalLen;
+      let d = ((s % L) + L) % L;
+      if (d <= this.straightLen) {
+        return { x: this.leftX + d, y: this.topY };
+      }
+      d -= this.straightLen;
+      if (d <= this.arcLen) {
+        const angle = -Math.PI / 2 + (d / this.arcLen) * Math.PI;
+        return {
+          x: this.rightX + Math.cos(angle) * this.radius,
+          y: (this.topY + this.radius) + Math.sin(angle) * this.radius
+        };
+      }
+      d -= this.arcLen;
+      if (d <= this.straightLen) {
+        return { x: this.rightX - d, y: this.bottomY };
+      }
+      d -= this.straightLen;
+      const angle = Math.PI / 2 + (d / this.arcLen) * Math.PI;
+      return {
+        x: this.leftX + Math.cos(angle) * this.radius,
+        y: (this.topY + this.radius) + Math.sin(angle) * this.radius
+      };
+    }
+  };
+
+  const MBOX = {
+    x: 205,
+    y: 242,
+    w: 265,
+    h: 196,
+    sCenter: (205 - LOOP_TRACK.leftX) + 265 / 2
+  };
+
+  const layouts = {
+    splitCenter: [],
+    beadLine: [],
+    finalUnfold: []
+  };
+
+  function computeStaticLayouts() {
+    // 1. Split tokens layout in center (Step 2 & 3)
+    ctx.font = '600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const gap = 8;
+    const chipWidths = BASE_TOKENS.map(tok => Math.ceil(ctx.measureText(tok.text).width) + 20);
+    const totalW = chipWidths.reduce((a, b) => a + b, 0) + gap * (BASE_TOKENS.length - 1);
+    let curX = (STAGE_W - totalW) / 2;
+
+    layouts.splitCenter = BASE_TOKENS.map((tok, i) => {
+      const w = chipWidths[i];
+      const item = { x: curX + w / 2, y: 310, w, h: 42 };
+      curX += w + gap;
+      return item;
+    });
+
+    // 2. Initial 14-bead chain layout before entering Model
+    const beadPitch = 46;
+    const totalBeadW = (BASE_TOKENS.length - 1) * beadPitch;
+    const startBeadX = (STAGE_W - totalBeadW) / 2;
+    layouts.beadLine = BASE_TOKENS.map((_, i) => ({
+      x: startBeadX + i * beadPitch,
+      y: 340,
+      w: 46,
+      h: 32
+    }));
+
+    // 3. Final unfolded 18 tokens (14 user + 3 model + EOS)
+    ctx.font = '600 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const finalGap = 6;
+    const finalWidths = ALL_TOKENS.map(tok => {
+      if (tok.isEOS) return 46;
+      return Math.ceil(ctx.measureText(tok.text).width) + 16;
+    });
+    const totalFinalW = finalWidths.reduce((a, b) => a + b, 0) + finalGap * (ALL_TOKENS.length - 1);
+    let fX = (STAGE_W - totalFinalW) / 2;
+
+    layouts.finalUnfold = ALL_TOKENS.map((tok, i) => {
+      const w = finalWidths[i];
+      const item = { x: fX + w / 2, y: 325, w, h: tok.isEOS ? 36 : 40 };
+      fX += w + finalGap;
+      return item;
+    });
+  }
+
+  computeStaticLayouts();
+
+  // ============================================================================
+  // 6. PLAYBACK STATE & CONTROLS (SPACE, R, H, CLICK)
   // ============================================================================
   let animTime = 0;
   let isPlaying = false;
   let hasStarted = false;
   let lastFrameTimestamp = null;
 
-  function focusStage() {
+  const btnRestart = document.getElementById('btn-restart');
+  const hudRestoreBtn = document.getElementById('hud-restore-btn');
+
+  function ensureKeyboardFocus() {
     try {
       window.focus();
-      if (stageWrapper && stageWrapper.focus) {
-        stageWrapper.focus({ preventScroll: true });
+      if (document.body) {
+        document.body.focus({ preventScroll: true });
       }
     } catch (_) {}
   }
 
-  window.addEventListener('load', focusStage);
-  focusStage();
+  function flashButton(btn) {
+    if (!btn) return;
+    btn.classList.add('flash-active');
+    setTimeout(() => {
+      btn.classList.remove('flash-active');
+    }, 180);
+  }
 
   function updateUIState() {
     if (hasStarted) {
@@ -311,15 +599,13 @@
 
     if (isPlaying) {
       playIndicator.classList.remove('paused');
-      btnPlayLabel.textContent = 'Пауза';
     } else {
       playIndicator.classList.add('paused');
-      btnPlayLabel.textContent = hasStarted && animTime < TIMELINE_END ? 'Продолжить' : 'Старт';
     }
   }
 
-  function togglePlay() {
-    focusStage();
+  function togglePlay(btnEl) {
+    if (btnEl && typeof btnEl.blur === 'function') btnEl.blur();
     if (!hasStarted) {
       hasStarted = true;
       isPlaying = true;
@@ -329,76 +615,85 @@
     } else {
       isPlaying = !isPlaying;
     }
+    lastFrameTimestamp = performance.now();
     updateUIState();
+    renderScene(animTime);
+    ensureKeyboardFocus();
   }
 
-  function restartAnimation() {
-    focusStage();
+  function restartAnimation(btnEl) {
+    if (btnEl && typeof btnEl.blur === 'function') btnEl.blur();
     animTime = 0;
     hasStarted = true;
     isPlaying = true;
-    lastFrameTimestamp = null;
+    lastFrameTimestamp = performance.now();
+    flashButton(btnRestart);
     updateUIState();
+    renderScene(0);
+    ensureKeyboardFocus();
   }
 
-  function toggleControlsVisibility() {
-    focusStage();
-    const isHidden = controlsBar.classList.toggle('hidden');
-    if (isHidden) {
-      restoreDot.classList.add('visible');
+  function toggleHud(btnEl) {
+    if (btnEl && typeof btnEl.blur === 'function') btnEl.blur();
+    const isNowHidden = controlsBar.classList.toggle('hud-hidden');
+    if (isNowHidden) {
+      hudRestoreBtn.classList.add('visible');
     } else {
-      restoreDot.classList.remove('visible');
+      hudRestoreBtn.classList.remove('visible');
     }
+    ensureKeyboardFocus();
   }
 
-  // Handle keyboard shortcuts in both English and Russian layouts (case-insensitive)
-  function handleKeyDown(e) {
-    const code = e.code || '';
-    const key = (e.key || '').toLowerCase();
+  // Expose global handlers for inline onclick attributes
+  window.appTogglePlay = togglePlay;
+  window.appRestart = restartAnimation;
+  window.appToggleHud = toggleHud;
 
-    if (code === 'Space' || key === ' ' || key === 'spacebar') {
+  // Keep keyboard focus inside the iframe on load and on any pointer interaction
+  window.addEventListener('load', ensureKeyboardFocus);
+  document.addEventListener('pointerdown', () => {
+    ensureKeyboardFocus();
+  }, { passive: true });
+
+  // Deduplicate keydown in case both window and document fire in capture phase
+  let lastHandledKeyEvent = null;
+
+  function handleKeyDown(e) {
+    if (e === lastHandledKeyEvent) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const code = e.code || '';
+    const key = e.key || '';
+    const keyCode = e.keyCode || e.which || 0;
+
+    const isSpace = (code === 'Space' || key === ' ' || keyCode === 32);
+    const isR = (code === 'KeyR' || key === 'r' || key === 'R' || key === 'к' || key === 'К' || keyCode === 82);
+    const isH = (code === 'KeyH' || key === 'h' || key === 'H' || key === 'р' || key === 'Р' || keyCode === 72);
+
+    if (isSpace) {
+      lastHandledKeyEvent = e;
       e.preventDefault();
+      e.stopPropagation();
       togglePlay();
-    } else if (code === 'KeyR' || key === 'r' || key === 'к') {
+    } else if (isR) {
+      lastHandledKeyEvent = e;
       e.preventDefault();
+      e.stopPropagation();
       restartAnimation();
-    } else if (code === 'KeyH' || key === 'h' || key === 'р') {
+    } else if (isH) {
+      lastHandledKeyEvent = e;
       e.preventDefault();
-      toggleControlsVisibility();
+      e.stopPropagation();
+      toggleHud();
     }
   }
 
   window.addEventListener('keydown', handleKeyDown, { capture: true });
+  document.addEventListener('keydown', handleKeyDown, { capture: true });
 
-  // Interactive button listeners (prevent bubbling to stageWrapper)
-  btnPlay.addEventListener('click', (e) => {
-    e.stopPropagation();
-    togglePlay();
-  });
-
-  btnRestart.addEventListener('click', (e) => {
-    e.stopPropagation();
-    restartAnimation();
-  });
-
-  btnHide.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleControlsVisibility();
-  });
-
-  restoreDot.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleControlsVisibility();
-  });
-
-  startPrompt.addEventListener('click', (e) => {
-    e.stopPropagation();
-    togglePlay();
-  });
-
-  // Clicking or tapping anywhere on the stage (outside control buttons) toggles Play/Pause
+  // Clicking on the stage background/canvas toggles play/pause (ignoring clicks on HUD buttons)
   stageWrapper.addEventListener('click', (e) => {
-    if (e.target.closest('#controls-bar') || e.target.closest('#restore-dot')) {
+    if (e.target.closest('#controls-bar') || e.target.closest('#hud-restore-btn')) {
       return;
     }
     togglePlay();
